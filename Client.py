@@ -28,7 +28,14 @@ class Client:
         print(pkd_packet)
         self.socket.send(pkd_packet)
         print('File: '+str(requested_file)+' has been requested from the server.')
-        self.socket.connect((self.server_ip,self.server_port+self.socket.getsockname()[1]-1000))
+        self.recv_port_num(self.socket)
+        # self.socket.connect((self.server_ip,self.server_port+self.socket.getsockname()[1]-1000))
+
+    def recv_port_num(self, socket):
+        pkt,adr = socket.recvfrom(600)
+        unpkd = Packet(pkd_data=pkt)
+        self.server_port = int(unpkd.data.decode())
+        self.socket.connect((self.server_ip,self.server_port))
 
     def recv_and_send_ack(self):
         print('Connected to socket #'+str(self.socket.getsockname()[1]))

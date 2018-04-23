@@ -45,7 +45,7 @@ def go_back_n(file_name, server_socket, client_address,window_size=5):
             try:
                 ack = server_socket.recv(6000)
                 unpkd_ack = Packet(pkd_data=ack,type='ack')
-                print('Ack# '+ str(unpkd_ack.seqno) + ' received')
+                # print('Ack# '+ str(unpkd_ack.seqno) + ' received')
                 if unpkd_ack.checksum == pkt.checksum:
                     i += 1
                 else:
@@ -78,11 +78,13 @@ class Server:
         self.window_size = int(file.readline())
         self.random_seed = int(file.readline())
         self.probability = float(file.readline())
+        self.client_num = 0
+        self.client_port = self.port
         file.close()
 
     def handle_client(self, data, address):
         cl_sock = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
-        cl_sock.bind((self.host,self.port+address[1]-1000))
+        cl_sock.bind((self.host,self.client_port))
         print(cl_sock.getsockname())
         print('Connection acquired with client: '+str(address[1])+'... handling')
         recv_pkt = Packet(pkd_data=data)
@@ -90,11 +92,19 @@ class Server:
         print('Required file: ' + str(recv_pkt.data.decode()))
         go_back_n(recv_pkt.data.decode(), cl_sock, address)
 
+    def send_client_port(self,socket,address):
+        self.client_num += 5
+        self.client_port = self.port+self.client_num
+        pkt = Packet(seqno=0,data=self.client_port.__str__().encode())
+        pkt = pkt.pack()
+        socket.sendto(pkt,address)
+
     def start(self):
-        self.socket.bind((server.host, server.port))
+        self.socket.bind((self.host, self.port))
         while True:
             print('Waiting for connection...')
             data, address = server.socket.recvfrom(6000)
+            self.send_client_port(server.socket, address)
             pid = os.fork()
             if pid == 0:
                 self.handle_client(data, address)
