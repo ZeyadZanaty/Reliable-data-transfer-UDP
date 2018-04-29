@@ -25,46 +25,61 @@ class Client:
         self.requested_filename=requested_file
         request_packet = Packet(seqno=0, data=requested_file,type='str')
         pkd_packet = request_packet.pack(type='str')
-        print(pkd_packet)
+        # print(pkd_packet)
         self.socket.send(pkd_packet)
         print('File: '+str(requested_file)+' has been requested from the server.')
+        self.recv_file_len(self.socket)
         self.recv_port_num(self.socket)
         # self.socket.connect((self.server_ip,self.server_port+self.socket.getsockname()[1]-1000))
 
     def recv_port_num(self, socket):
         pkt,adr = socket.recvfrom(600)
         unpkd = Packet(pkd_data=pkt)
+        ack = Packet(type='ack',chk_sum=calc_checksum(unpkd.data.decode())).pack(type='ack')
+        socket.send(ack)
         self.server_port = int(unpkd.data.decode())
         self.socket.connect((self.server_ip,self.server_port))
+
+    def recv_file_len(self,socket):
+        pkt, adr = socket.recvfrom(600)
+        unpkd = Packet(pkd_data=pkt)
+        ack = Packet(type='ack', chk_sum=calc_checksum(unpkd.data.decode())).pack(type='ack')
+        socket.send(ack)
+        self.file_len = int(unpkd.data)
+        print('Required file length = ',self.file_len,' packets.')
 
     def recv_and_send_ack(self):
         print('Connected to socket #'+str(self.socket.getsockname()[1]))
         exp_pkt_num = 0
         while True:
             try:
+                self.socket.settimeout(3)
                 pkt, adr = self.socket.recvfrom(600)
                 recv_pkt = Packet(pkd_data=pkt)
                 if adr[0] == self.server_ip:
-                    print('Received packet# '+str(recv_pkt.seqno))
+                    # print('Received packet# '+str(recv_pkt.seqno))
                     cs= calc_checksum(recv_pkt.data,type='bytes')
                     ack = Packet(type='ack',seqno=recv_pkt.seqno,chk_sum=cs)
                     pkd_ack = ack.pack(type='ack')
                     if recv_pkt.seqno == exp_pkt_num:
+                        # print('Received packet# ' + str(recv_pkt.seqno))
                         self.recv_pkt_list.append(recv_pkt)
                         self.socket.send(pkd_ack)
-                        exp_pkt_num+=1
+                        exp_pkt_num += 1
                     else:
                         continue
-                print(len(self.recv_pkt_list))
+                if self.file_len == len(self.recv_pkt_list):
+                    print('File received successfully.')
+                    break
             except socket.timeout:
-                print('Timed Out')
-                break
+                print('Packet# ',exp_pkt_num,' timed out, re-receiving.')
+                continue
 
     def write_file(self,pkt_list):
-        file = open('dl_'+str(self.requested_filename),'wb')
+        file = open('dl_'+str(self.requested_filename), 'wb')
         for pkt in pkt_list:
             file.write(pkt.data)
-        print('File Received!')
+        print('File written successfully!')
 
 
 client = Client(sys.argv[2])
