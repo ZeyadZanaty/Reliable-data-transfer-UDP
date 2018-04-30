@@ -6,8 +6,7 @@ import threading
 import time
 
 
-
-def go_back_n(server, file_name, server_socket, client_address,window_size=5):
+def go_back_n(server, server_socket, client_address,window_size=5):
     pkt_list = server.pkt_list
     # server_socket.settimeout(3)
     flag = False
@@ -39,34 +38,30 @@ def go_back_n(server, file_name, server_socket, client_address,window_size=5):
             except socket.timeout as e:
                 print('Ack # '+str(pkt.seqno)+' ack has timed out....resending')
                 break
-    # for i, pkt in enumerate(pkt_list):
-    #     # print(pkt.length, pkt.seqno)
-    #     pkd_packet = pkt.pack(type='bytes')
-    #     server_socket.sendto(pkd_packet, client_address)
-    #     try:
-    #         ack = server_socket.recv(6000)
-    #         unpkd_ack = Packet(pkd_data=ack,type='ack')
-    #         print('Ack# '+ str(unpkd_ack.seqno) + ' received')
-    #         i += 1
-    #     except socket.timeout as e:
-    #         print('Packet #' + str(pkt.seqno) + 'has timed out....resending')
-    #         break
 
 
-# def selective_repeat(file_name, server_socket, client_address, window_size=5):
-#     pkt_list = get_packets_from_file(file_name)
-#     flag = False
-#     i = 0
-#     while i < len(pkt_list):
-#         current_pkt = pkt_list[i:window_size + i]
-#         if window_size + i > len(pkt_list):
-#             current_pkt = pkt_list[i:]
-#     for pkt in current_pkt:
-#         pkd_packet = pkt.pack(type='bytes')
-#         server_socket.sendto(pkd_packet, client_address)
-#         if flag is True:
-#             flag = False
-#             break
+def selective_repeat(server, server_socket, client_address, window_size=5):
+    pkt_list = server.pkt_list
+    flag = False
+    i = 0
+    while i < len(pkt_list):
+        current_pkt = pkt_list[i:window_size + i]
+        if window_size + i > len(pkt_list):
+            current_pkt = pkt_list[i:]
+        for pkt in current_pkt:
+            pkd_packet = pkt.pack(type='bytes')
+            server_socket.sendto(pkd_packet, client_address)
+            if flag is True:
+                flag = False
+                break
+        for pkt in current_pkt:
+            ack = server_socket.recv(600)
+            unpkd_ack = Packet(pkd_data=ack, type='ack')
+            if unpkd_ack.checksum == pkt.checksum:
+                i += 1
+            # else:
+
+
 
 
 class Server:
@@ -103,11 +98,11 @@ class Server:
         self.pkt_list = pkt_list
         return pkt_list
 
-    def handle_client(self, data, address):
+    def handle_client(self, address):
         cl_sock = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
         cl_sock.bind((self.host,self.client_port))
         print('Connection acquired with client: '+str(address[1])+'... handling')
-        go_back_n(self, data, cl_sock, address)
+        go_back_n(self, server_socket=cl_sock, client_address=address)
 
     def send_client_port(self, socket, address):
         self.client_num += 1
@@ -142,7 +137,8 @@ class Server:
             self.send_client_port(server.socket, address)
             pid = os.fork()
             if pid == 0:
-                self.handle_client(self.req_file, address)
+                self.handle_client(address)
+                print('Client# ',self.client_num,' finished successfully.')
 
 
 server = Server('server.in')
