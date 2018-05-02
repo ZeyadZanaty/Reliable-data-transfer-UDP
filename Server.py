@@ -2,67 +2,9 @@ import socket  # Import socket module
 import os
 import struct
 from Packet import Packet, calc_checksum
-import threading
-import time
-
-
-def go_back_n(server, server_socket, client_address,window_size=5):
-    pkt_list = server.pkt_list
-    # server_socket.settimeout(3)
-    flag = False
-    i = 0
-    while i < len(pkt_list):
-        current_pkt = pkt_list[i:window_size+i]
-        if window_size+i > len(pkt_list):
-            current_pkt = pkt_list[i:]
-        for pkt in current_pkt:
-            # pkt =pkt_list[w]
-            pkd_packet = pkt.pack(type='bytes')
-            if pkt.seqno == 2:
-                time.sleep(5)
-            server_socket.sendto(pkd_packet,client_address)
-            if flag is True:
-                flag = False
-                break
-        for pkt in current_pkt:
-            # pkt = pkt_list[w]
-            try:
-                ack = server_socket.recv(6000)
-                unpkd_ack = Packet(pkd_data=ack,type='ack')
-                # print('Ack# '+ str(unpkd_ack.seqno) + ' received')
-                if unpkd_ack.checksum == pkt.checksum:
-                    i += 1
-                else:
-                    flag = True
-                    break
-            except socket.timeout as e:
-                print('Ack # '+str(pkt.seqno)+' ack has timed out....resending')
-                break
-
-
-def selective_repeat(server, server_socket, client_address, window_size=5):
-    pkt_list = server.pkt_list
-    flag = False
-    i = 0
-    while i < len(pkt_list):
-        current_pkt = pkt_list[i:window_size + i]
-        if window_size + i > len(pkt_list):
-            current_pkt = pkt_list[i:]
-        for pkt in current_pkt:
-            pkd_packet = pkt.pack(type='bytes')
-            server_socket.sendto(pkd_packet, client_address)
-            if flag is True:
-                flag = False
-                break
-        for pkt in current_pkt:
-            ack = server_socket.recv(600)
-            unpkd_ack = Packet(pkd_data=ack, type='ack')
-            if unpkd_ack.checksum == pkt.checksum:
-                i += 1
-            # else:
-
-
-
+import threading, time
+import random
+from RDTProtocols import *
 
 class Server:
 
@@ -78,6 +20,12 @@ class Server:
         self.client_port = self.port
         self.pkt_list = []
         file.close()
+
+    def get_lost_packets(self, total_packets, probability, seed):
+        random.seed(seed)
+        list = random.sample(range(total_packets), int(probability * total_packets))
+        list.sort()
+        return list
 
     def get_bytes_from_file(self,file_name):
         return open(file_name, 'rb').read()
@@ -98,11 +46,11 @@ class Server:
         self.pkt_list = pkt_list
         return pkt_list
 
-    def handle_client(self, address):
+    def handle_client(self, address, protocol):
         cl_sock = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
         cl_sock.bind((self.host,self.client_port))
         print('Connection acquired with client: '+str(address[1])+'... handling')
-        go_back_n(self, server_socket=cl_sock, client_address=address)
+        self.send(protocol,[self,cl_sock,address])
 
     def send_client_port(self, socket, address):
         self.client_num += 1
@@ -127,6 +75,20 @@ class Server:
         if ack_p.checksum == calc_checksum(str(self.file_len)):
             print('Received file len ack...')
 
+    def send_rdt_protocol(self,socket, data,address):
+        pkt= Packet(data=data.encode()).pack()
+        socket.sendto(pkt,address)
+        ack, add = socket.recvfrom(600)
+        ack_p = Packet(pkd_data=ack, type='ack')
+        if ack_p.checksum == calc_checksum(str(self.client_port)):
+            print('Received protocol ack...')
+
+    def send(self, protocol, params):
+        rdt = RDTProtocols(self)
+        send_call = getattr(rdt, protocol)
+        if send_call:
+            send_call(*params)
+
     def start(self):
         self.socket.bind((self.host, self.port))
         while True:
@@ -137,7 +99,7 @@ class Server:
             self.send_client_port(server.socket, address)
             pid = os.fork()
             if pid == 0:
-                self.handle_client(address)
+                self.handle_client(address,'go_back_n')
                 print('Client# ',self.client_num,' finished successfully.')
 
 

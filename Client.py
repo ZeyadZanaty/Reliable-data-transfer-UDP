@@ -3,7 +3,7 @@ import threading
 from Packet import Packet
 from Packet import calc_checksum
 import sys
-import time
+import time,random
 
 class Client:
 
@@ -32,6 +32,13 @@ class Client:
         self.recv_port_num(self.socket)
         # self.socket.connect((self.server_ip,self.server_port+self.socket.getsockname()[1]-1000))
 
+    def get_corrupted_packets(self,packets_num, probability, seed):
+        random.seed(seed)
+        corrupted = random.sample(range(packets_num), int(probability * packets_num))
+        corrupted = [i for i in corrupted]
+        corrupted.sort()
+        return corrupted
+
     def recv_port_num(self, socket):
         pkt,adr = socket.recvfrom(600)
         unpkd = Packet(pkd_data=pkt)
@@ -50,23 +57,29 @@ class Client:
 
     def recv_and_send_ack(self):
         print('Connected to socket #'+str(self.socket.getsockname()[1]))
+        corrupted = self.get_corrupted_packets(self.file_len,0.2,5)
         exp_pkt_num = 0
         while True:
             try:
-                self.socket.settimeout(3)
+                # self.socket.settimeout(5)
                 pkt, adr = self.socket.recvfrom(600)
                 recv_pkt = Packet(pkd_data=pkt)
+                if recv_pkt.seqno in corrupted:
+                    recv_pkt.checksum = recv_pkt.checksum-10
+                    corrupted.remove(recv_pkt.seqno)
                 if adr[0] == self.server_ip:
-                    # print('Received packet# '+str(recv_pkt.seqno))
+                    print('Received packet# '+str(recv_pkt.seqno))
                     cs= calc_checksum(recv_pkt.data,type='bytes')
                     ack = Packet(type='ack',seqno=recv_pkt.seqno,chk_sum=cs)
                     pkd_ack = ack.pack(type='ack')
-                    if recv_pkt.seqno == exp_pkt_num:
-                        # print('Received packet# ' + str(recv_pkt.seqno))
+                    if recv_pkt.seqno == exp_pkt_num and recv_pkt.checksum == calc_checksum(recv_pkt.data, type='bytes'):
+                        print('Sending Ack# ' + str(recv_pkt.seqno))
                         self.recv_pkt_list.append(recv_pkt)
                         self.socket.send(pkd_ack)
                         exp_pkt_num += 1
                     else:
+                        if recv_pkt.checksum != calc_checksum(recv_pkt.data, type='bytes'):
+                            print('Packet # ', recv_pkt.seqno, 'is corrupted, re-receiving')
                         continue
                 if self.file_len == len(self.recv_pkt_list):
                     print('File received successfully.')
