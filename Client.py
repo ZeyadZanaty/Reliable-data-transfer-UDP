@@ -16,21 +16,29 @@ class Client:
         self.window_size = int(input_file.readline())
         self.socket = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
         self.socket.connect((self.server_ip, self.server_port))
-        self.socket.settimeout(10)
         self.recv_pkt_list = []
         input_file.close()
 
     def request_file(self,requested_file):
         self.recv_pkt_list=[]
         self.requested_filename=requested_file
-        request_packet = Packet(seqno=0, data=requested_file,type='str')
-        pkd_packet = request_packet.pack(type='str')
-        # print(pkd_packet)
-        self.socket.send(pkd_packet)
-        print('File: '+str(requested_file)+' has been requested from the server.')
-        self.recv_file_len(self.socket)
-        self.recv_port_num(self.socket)
-        # self.socket.connect((self.server_ip,self.server_port+self.socket.getsockname()[1]-1000))
+        self.socket.settimeout(5)
+        while True:
+            request_packet = Packet(seqno=0, data=requested_file,type='str')
+            pkd_packet = request_packet.pack(type='str')
+            # print(pkd_packet)
+            self.socket.send(pkd_packet)
+            print('File: '+str(requested_file)+' has been requested from the server.')
+            try:
+                ack_pkt,address = self.socket.recvfrom(1024)
+                ack_pkt = Packet(type='ack',pkd_data=ack_pkt)
+                print('Request ack recevied.')
+                break
+            except socket.timeout:
+                continue
+        self.socket.settimeout(None)
+        self.recv_port_num()
+        self.recv_file_len()
 
     def get_corrupted_packets(self,packets_num, probability, seed):
         random.seed(seed)
@@ -39,25 +47,23 @@ class Client:
         corrupted.sort()
         return corrupted
 
-    def recv_port_num(self, socket):
-        pkt,adr = socket.recvfrom(600)
+    def recv_port_num(self):
+        pkt,adr = self.socket.recvfrom(600)
         unpkd = Packet(pkd_data=pkt)
-        ack = Packet(type='ack',chk_sum=calc_checksum(unpkd.data.decode())).pack(type='ack')
-        socket.send(ack)
         self.server_port = int(unpkd.data.decode())
         self.socket.connect((self.server_ip,self.server_port))
 
-    def recv_file_len(self,socket):
-        pkt, adr = socket.recvfrom(600)
+    def recv_file_len(self):
+        pkt, adr = self.socket.recvfrom(600)
         unpkd = Packet(pkd_data=pkt)
         ack = Packet(type='ack', chk_sum=calc_checksum(unpkd.data.decode())).pack(type='ack')
-        socket.send(ack)
+        self.socket.send(ack)
         self.file_len = int(unpkd.data)
         print('Required file length = ',self.file_len,' packets.')
 
     def recv_and_send_ack(self):
         print('Connected to socket #'+str(self.socket.getsockname()[1]))
-        corrupted = self.get_corrupted_packets(self.file_len,0.2,5)
+        corrupted = self.get_corrupted_packets(self.file_len,0,5)
         exp_pkt_num = 0
         while True:
             try:

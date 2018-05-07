@@ -1,6 +1,6 @@
 from Packet import Packet
 import socket
-
+import threading
 
 class RDTProtocols:
 
@@ -45,24 +45,3 @@ class RDTProtocols:
                     send = True
                     print('Ack # ' + str(pkt.seqno) + ' ack has timed out....resending packet')
                     break
-
-    def selective_repeat(self, server, server_socket, client_address, window_size=5):
-        pkt_list = server.pkt_list
-        flag = False
-        i = 0
-        while i < len(pkt_list):
-            current_pkt = pkt_list[i:window_size + i]
-            if window_size + i > len(pkt_list):
-                current_pkt = pkt_list[i:]
-            for pkt in current_pkt:
-                pkd_packet = pkt.pack(type='bytes')
-                server_socket.sendto(pkd_packet, client_address)
-                if flag is True:
-                    flag = False
-                    break
-            for pkt in current_pkt:
-                ack = server_socket.recv(600)
-                unpkd_ack = Packet(pkd_data=ack, type='ack')
-                if unpkd_ack.checksum == pkt.checksum:
-                    i += 1
-                # else:

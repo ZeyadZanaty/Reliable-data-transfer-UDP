@@ -46,28 +46,29 @@ class Server:
         self.pkt_list = pkt_list
         return pkt_list
 
-    def handle_client(self, address, protocol):
+    def handle_client(self, address,data, protocol):
         cl_sock = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
         cl_sock.bind((self.host,self.client_port))
         print('Connection acquired with client: '+str(address[1])+'... handling')
+        self.send_file_len(cl_sock, address, data)
         self.send(protocol,[self,cl_sock,address])
+
+    def send_window_size(self,server_socket, window_size, client_addr):
+        pkt = Packet(data=str(window_size))
+        server_socket.sendto(pkt.pack(), client_addr)
+        ack, add = server_socket.recvfrom(600)
+        ack_p = Packet(pkd_data=ack, type='ack')
+        if ack_p.checksum == calc_checksum(str(window_size)):
+            print('Received file window size ack...')
 
     def send_client_port(self, socket, address):
         self.client_num += 1
         self.client_port = self.port+self.client_num
         pkt = Packet(seqno=0, data=self.client_port.__str__().encode()).pack()
         socket.sendto(pkt, address)
-        ack, add = socket.recvfrom(600)
-        ack_p = Packet(pkd_data=ack, type='ack')
-        if ack_p.checksum == calc_checksum(str(self.client_port)):
-            print('Received new port ack...')
 
     def send_file_len(self, socket, address, data):
-        recv_pkt = Packet(pkd_data=data)
-        # print(recv_pkt.seqno, recv_pkt.data.decode())
-        print('Required file: '+str(recv_pkt.data.decode()))
-        self.req_file = str(recv_pkt.data.decode())
-        self.get_packets_from_file(self.req_file)
+        self.get_packets_from_file(data)
         pkt = Packet(seqno=0, data=str(self.file_len).encode()).pack()
         socket.sendto(pkt, address)
         ack, add = socket.recvfrom(600)
@@ -94,12 +95,20 @@ class Server:
         while True:
             print('Waiting for connection...')
             data, address = server.socket.recvfrom(600)
-            print('Client# ', self.client_num+1, ' connected.')
-            self.send_file_len(server.socket, address, data)
+            pkt = Packet(pkd_data=data)
+            self.req_file = pkt.data.decode()
+            if pkt.checksum == calc_checksum(pkt.data, type='bytes'):
+                ack = Packet(type='ack', seqno=0)
+                self.socket.sendto(ack.pack(type='ack'), address)
+            else:
+                print('Request Packet Corrupted.. re-receiving')
+                continue
+            print('Request Received successfully.')
+            print('Client# ', self.client_num + 1, ' connected.')
             self.send_client_port(server.socket, address)
             pid = os.fork()
             if pid == 0:
-                self.handle_client(address,'go_back_n')
+                self.handle_client(address,self.req_file,'go_back_n')
                 print('Client# ',self.client_num,' finished successfully.')
 
 
